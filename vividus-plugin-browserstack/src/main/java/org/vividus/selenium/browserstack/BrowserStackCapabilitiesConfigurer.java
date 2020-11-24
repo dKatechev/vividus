@@ -16,21 +16,32 @@
 
 package org.vividus.selenium.browserstack;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.Optional;
 
+import com.google.common.eventbus.Subscribe;
+
+import org.openqa.selenium.Proxy;
+import org.openqa.selenium.remote.CapabilityType;
 import org.openqa.selenium.remote.DesiredCapabilities;
 import org.vividus.bdd.context.IBddRunContext;
 import org.vividus.bdd.model.RunningStory;
 import org.vividus.selenium.AbstractDesiredCapabilitiesConfigurer;
+import org.vividus.selenium.event.WebDriverQuitEvent;
 
 public class BrowserStackCapabilitiesConfigurer extends AbstractDesiredCapabilitiesConfigurer
 {
     private final IBddRunContext bddRunContext;
+    private final BrowserStackLocalManager browserStackLocalManager;
     private boolean browserStackEnabled;
+    private boolean browserStackLocalEnabled;
 
-    public BrowserStackCapabilitiesConfigurer(IBddRunContext bddRunContext)
+    public BrowserStackCapabilitiesConfigurer(IBddRunContext bddRunContext,
+            BrowserStackLocalManager browserStackLocalManager)
     {
         this.bddRunContext = bddRunContext;
+        this.browserStackLocalManager = browserStackLocalManager;
     }
 
     @Override
@@ -38,14 +49,53 @@ public class BrowserStackCapabilitiesConfigurer extends AbstractDesiredCapabilit
     {
         if (browserStackEnabled)
         {
+            Proxy proxy = (Proxy) desiredCapabilities.getCapability(CapabilityType.PROXY);
+            if (browserStackLocalEnabled || proxy != null)
+            {
+                try
+                {
+                    if (proxy != null)
+                    {
+                        String localIdentifier = browserStackLocalManager.start(proxy.getHttpProxy());
+                        putBstackOption(desiredCapabilities, "localIdentifier", localIdentifier);
+                        desiredCapabilities.setCapability(CapabilityType.PROXY, (Object) null);
+                    }
+                    else
+                    {
+                        browserStackLocalManager.start();
+                    }
+                    putBstackOption(desiredCapabilities, "local", true);
+                }
+                catch (IOException e)
+                {
+                    throw new UncheckedIOException(e);
+                }
+            }
+
             Optional.ofNullable(bddRunContext.getRootRunningStory())
                     .map(RunningStory::getName)
-                    .ifPresent(name -> putNestedCapability(desiredCapabilities, "bstack:options", "sessionName", name));
+                    .ifPresent(name -> putBstackOption(desiredCapabilities, "sessionName", name));
         }
+    }
+
+    @Subscribe
+    public void stopSauceConnect(WebDriverQuitEvent event)
+    {
+        browserStackLocalManager.stop();
+    }
+
+    private void putBstackOption(DesiredCapabilities desiredCapabilities, String key, Object value)
+    {
+        putNestedCapability(desiredCapabilities, "bstack:options", key, value);
     }
 
     public void setBrowserStackEnabled(boolean browserStackEnabled)
     {
         this.browserStackEnabled = browserStackEnabled;
+    }
+
+    public void setBrowserStackLocalEnabled(boolean browserStackLocalEnabled)
+    {
+        this.browserStackLocalEnabled = browserStackLocalEnabled;
     }
 }

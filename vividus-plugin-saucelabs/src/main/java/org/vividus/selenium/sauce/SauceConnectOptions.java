@@ -16,27 +16,19 @@
 
 package org.vividus.selenium.sauce;
 
-import java.io.File;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Arrays;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Stream;
 
-import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.FilenameUtils;
+import org.vividus.proxy.util.ProxyUtils;
+import org.vividus.util.ResourceUtils;
 
 public class SauceConnectOptions
 {
-    private static final String PAC_FILE_CONTENT_FORMAT = "function FindProxyForURL(url, host) { "
-            + "if (shExpMatch(host, \"*.miso.saucelabs.com\")"
-            + "|| shExpMatch(host, \"saucelabs.com\")"
-            + "|| shExpMatch(host, \"%1$s\")) {"
-            + "return \"DIRECT\";}return \"PROXY %2$s\";}";
-
     private String proxy;
     private String noSslBumpDomains;
     private String skipProxyHostsPattern;
@@ -90,8 +82,9 @@ public class SauceConnectOptions
              * PAC-file path delimiters). Sauce lab ticket link: https://support.saucelabs.com/hc/en-us/requests/38183
              * Affected SauceConnect version: 4.4.4 and above.
              * */
-            appendOption(options, "pac",
-                    "file://" + FilenameUtils.separatorsToUnix(createPacFile(tunnelIdentifier).toString()));
+            String pacPath = ProxyUtils.createPacFile(tunnelIdentifier, proxy,
+                Optional.ofNullable(skipProxyHostsPattern).map(List::of).orElse(List.of())).toString();
+            appendOption(options, "pac", "file://" + FilenameUtils.separatorsToUnix(pacPath));
         }
         if (restUrl != null)
         {
@@ -102,24 +95,9 @@ public class SauceConnectOptions
         return options.substring(0, options.length() - 1);
     }
 
-    private Path createPacFile(String tunnelIdentifier) throws IOException
-    {
-        return createTempFile("pac-" + tunnelIdentifier, ".js",
-                String.format(PAC_FILE_CONTENT_FORMAT, skipProxyHostsPattern, proxy));
-    }
-
     private Path createPidFile(String tunnelIdentifier) throws IOException
     {
-        return createTempFile("sc_client-" + tunnelIdentifier + "-", ".pid");
-    }
-
-    private Path createTempFile(String prefix, String suffix, String... lines) throws IOException
-    {
-        Path tempFilePath = Files.createTempFile(prefix, suffix);
-        File tempFile = tempFilePath.toFile();
-        FileUtils.writeLines(tempFile, StandardCharsets.UTF_8.toString(), Arrays.asList(lines));
-        tempFile.deleteOnExit();
-        return tempFilePath;
+        return ResourceUtils.createTempFile("sc_client-" + tunnelIdentifier + "-", ".pid", null);
     }
 
     private static void appendOption(StringBuilder stringBuilder, String name, String... values)

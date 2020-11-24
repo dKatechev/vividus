@@ -22,14 +22,17 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
-import java.util.HashMap;
+import java.io.IOException;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.openqa.selenium.Proxy;
+import org.openqa.selenium.remote.CapabilityType;
 import org.openqa.selenium.remote.DesiredCapabilities;
 import org.vividus.bdd.context.IBddRunContext;
 import org.vividus.bdd.model.RunningStory;
@@ -37,8 +40,13 @@ import org.vividus.bdd.model.RunningStory;
 @ExtendWith(MockitoExtension.class)
 class BrowserStackCapabilitiesConfigurerTests
 {
+    private static final String BSTACK_KEY = "bstack:options";
+    private static final String NAME = "name";
+    private static final String SESSION_NAME = "sessionName";
+
     @Mock private IBddRunContext bddRunContext;
-    @Mock private DesiredCapabilities desiredCapabilities;
+    @Mock private BrowserStackLocalManager browserStackLocalManager;
+    @Spy private DesiredCapabilities desiredCapabilities = new DesiredCapabilities();
     @InjectMocks private BrowserStackCapabilitiesConfigurer configurer;
 
     @Test
@@ -46,40 +54,66 @@ class BrowserStackCapabilitiesConfigurerTests
     {
         configurer.setBrowserStackEnabled(false);
         configurer.configure(desiredCapabilities);
-        verifyNoInteractions(bddRunContext, desiredCapabilities);
+        verifyNoInteractions(bddRunContext, desiredCapabilities, browserStackLocalManager);
+    }
+
+    @Test
+    void shouldUseBrowserStackLocal() throws IOException
+    {
+        configurer.setBrowserStackEnabled(true);
+        configurer.setBrowserStackLocalEnabled(true);
+        String httpProxy = "localhost:59338";
+        String localIdentifier = "local-identifier";
+
+        Proxy proxy = mock(Proxy.class);
+        RunningStory runningStory = mockRunningStory(NAME);
+
+        when(desiredCapabilities.getCapability(CapabilityType.PROXY)).thenReturn(proxy);
+        when(proxy.getHttpProxy()).thenReturn(httpProxy);
+        when(browserStackLocalManager.start(httpProxy)).thenReturn(localIdentifier);
+
+        configurer.configure(desiredCapabilities);
+
+        assertEquals(Map.of(BSTACK_KEY, Map.of(
+                SESSION_NAME, NAME,
+                "localIdentifier", localIdentifier,
+                "local", true
+        )), desiredCapabilities.asMap());
+        verifyNoMoreInteractions(bddRunContext, runningStory);
     }
 
     @Test
     void shouldAddRunningStoryNameAsSessionName()
     {
         configurer.setBrowserStackEnabled(true);
-        String name = "name";
-        String bstackKey = "bstack:options";
-        Map<String, Object> bstackMap = new HashMap<>();
-        RunningStory runningStory = mock(RunningStory.class);
 
-        when(bddRunContext.getRootRunningStory()).thenReturn(runningStory);
-        when(runningStory.getName()).thenReturn(name);
-        when(desiredCapabilities.getCapability(bstackKey)).thenReturn(bstackMap);
+        RunningStory runningStory = mockRunningStory(NAME);
 
         configurer.configure(desiredCapabilities);
 
-        assertEquals(Map.of("sessionName", name), bstackMap);
-        verifyNoMoreInteractions(bddRunContext, desiredCapabilities, runningStory);
+        assertEquals(Map.of(BSTACK_KEY, Map.of(SESSION_NAME, NAME)), desiredCapabilities.asMap());
+        verifyNoMoreInteractions(bddRunContext, runningStory);
     }
 
     @Test
     void shouldNotAddRunningStoryNameItItsNull()
     {
         configurer.setBrowserStackEnabled(true);
-        RunningStory runningStory = mock(RunningStory.class);
-
-        when(bddRunContext.getRootRunningStory()).thenReturn(runningStory);
-        when(runningStory.getName()).thenReturn(null);
+        RunningStory runningStory = mockRunningStory(null);
 
         configurer.configure(desiredCapabilities);
 
         verifyNoMoreInteractions(bddRunContext, runningStory);
         verifyNoInteractions(desiredCapabilities);
+    }
+
+    private RunningStory mockRunningStory(String name)
+    {
+        RunningStory runningStory = mock(RunningStory.class);
+
+        when(bddRunContext.getRootRunningStory()).thenReturn(runningStory);
+        when(runningStory.getName()).thenReturn(name);
+
+        return runningStory;
     }
 }
